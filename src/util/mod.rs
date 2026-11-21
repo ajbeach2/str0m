@@ -11,6 +11,10 @@ pub(crate) use time_tricks::{InstantExt, SystemTimeExt, not_happening};
 pub(crate) use time_tricks::{already_happened, epoch_to_beginning};
 
 mod average;
+
+mod payload_pool;
+pub(crate) use payload_pool::PayloadPool;
+
 pub(crate) use average::MovingAverage;
 
 pub(crate) trait Soonest {

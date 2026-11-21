@@ -53,6 +53,7 @@ pub struct RtcConfig {
     pub(crate) sctp_max_buffered_amount: usize,
     pub(crate) sctp_max_message_size: u32,
     pub(crate) rtp_mode: bool,
+    pub(crate) rtp_payload_pool: usize,
     pub(crate) enable_raw_packets: bool,
     pub(crate) dtls_version: DtlsVersion,
     pub(crate) vp9_packetizer_mode: Vp9PacketizerMode,
@@ -738,6 +739,42 @@ impl RtcConfig {
         self
     }
 
+    /// Reuse the allocations of received RTP payloads.
+    ///
+    /// Each received RTP packet copies its payload into an `Arc<[u8]>`. With a pool of
+    /// `size`, the `Rtc` keeps a clone of up to that many payloads. When every other clone
+    /// of one has been dropped, the next received payload of the same length is written
+    /// into it instead of a new allocation. A payload still held anywhere is never reused.
+    ///
+    /// This helps a server that forwards each received packet with
+    /// [`StreamTx::write_rtp`][crate::rtp::StreamTx::write_rtp] and lets go of it once
+    /// sent. Packets kept for resends hold their payload until they leave the cache.
+    ///
+    /// Defaults to 0, which keeps nothing and allocates every payload.
+    ///
+    /// ```
+    /// # use str0m::RtcConfig;
+    /// let config = RtcConfig::new().set_rtp_mode(true).set_rtp_payload_pool(64);
+    /// assert_eq!(config.rtp_payload_pool(), 64);
+    /// ```
+    pub fn set_rtp_payload_pool(mut self, size: usize) -> Self {
+        self.rtp_payload_pool = size;
+        self
+    }
+
+    /// The size of the received payload pool.
+    ///
+    /// ```
+    /// # use str0m::RtcConfig;
+    /// let config = RtcConfig::new();
+    ///
+    /// // Defaults to 0.
+    /// assert_eq!(config.rtp_payload_pool(), 0);
+    /// ```
+    pub fn rtp_payload_pool(&self) -> usize {
+        self.rtp_payload_pool
+    }
+
     /// Checks if RTP mode is set.
     ///
     /// ```
@@ -905,6 +942,7 @@ impl Default for RtcConfig {
             sctp_max_buffered_amount: crate::sctp::DEFAULT_MAX_BUFFERED_AMOUNT,
             sctp_max_message_size: crate::sctp::LOCAL_MAX_MESSAGE_SIZE,
             rtp_mode: false,
+            rtp_payload_pool: 0,
             enable_raw_packets: false,
             dtls_version: DtlsVersion::Dtls12,
             vp9_packetizer_mode: Vp9PacketizerMode::default(),
