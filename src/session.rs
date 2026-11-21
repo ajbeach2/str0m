@@ -39,7 +39,7 @@ use crate::rtp_::{SrtpContext, Ssrc};
 use crate::rtp_::{TwccRecvRegister, TwccSendRegister};
 use crate::stats::StatsSnapshot;
 use crate::streams::{RtpPacket, StreamTimeoutConfig, Streams};
-use crate::util::{Soonest, SystemTimeExt, already_happened, not_happening};
+use crate::util::{PayloadPool, Soonest, SystemTimeExt, already_happened, not_happening};
 use crate::{Reason, net};
 use crate::{RtcConfig, RtcError};
 
@@ -109,6 +109,9 @@ pub(crate) struct Session {
 
     // temporary buffer when getting the next (unencrypted) RTP packet from Media line.
     poll_packet_buf: Vec<u8>,
+
+    // Reuses the allocations of received RTP payloads.
+    payload_pool: PayloadPool,
 
     // Next packet for RtpPacket event.
     pending_packet: Option<RtpPacket>,
@@ -210,6 +213,7 @@ impl Session {
             pacer,
             pacer_control: PacerControl::new(),
             poll_packet_buf: vec![0; 2000],
+            payload_pool: PayloadPool::new(config.rtp_payload_pool),
             pending_packet: None,
             media_bytes_rx: 0,
             media_bytes_tx: 0,
@@ -850,9 +854,10 @@ impl Session {
         };
         self.media_bytes_rx += rx_bytes as u64;
 
-        // One-shot conversion to Arc<[u8]>: a single allocation that copies
-        // only the trimmed payload bytes out of the SRTP scratch buffer.
-        let payload: Arc<[u8]> = Arc::from(data);
+        // One-shot conversion to Arc<[u8]>: a single copy of only the trimmed
+        // payload bytes out of the SRTP scratch buffer, into a free pooled
+        // payload of the same length or else a new allocation.
+        let payload: Arc<[u8]> = self.payload_pool.payload(data);
 
         let packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
 
