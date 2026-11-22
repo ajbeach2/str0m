@@ -1,6 +1,5 @@
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{self};
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -18,9 +17,12 @@ use crate::rtp_::{MediaTime, SenderInfo};
 use crate::rtp_::{Mid, Rid, SeqNo};
 use crate::util::already_happened;
 
+pub(crate) use self::payload::AllocatorSlot;
+pub use self::payload::{Payload, PayloadAllocator};
 pub use self::receive::StreamRx;
 pub use self::send::{RtpWrite, StreamTx, StreamTxQueueInfo};
 
+mod payload;
 mod receive;
 pub(crate) mod register;
 pub(crate) mod register_nack;
@@ -55,7 +57,7 @@ pub struct RtpPacket {
     pub header: RtpHeader,
 
     /// RTP payload. This contains no header.
-    pub payload: Arc<[u8]>,
+    pub payload: Payload,
 
     vp8_patch: Option<Vp8Patch>,
 
@@ -108,7 +110,7 @@ impl RtpPacket {
                 payload_type: BLANK_PACKET_DEFAULT_PT,
                 ..Default::default()
             },
-            payload: Arc::default(), // This payload is never used. See RtpHeader::create_padding_packet
+            payload: Payload::default(), // This payload is never used. See RtpHeader::create_padding_packet
             vp8_patch: None,
             nackable: false,
             last_sender_info: None,

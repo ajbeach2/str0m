@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -26,11 +25,11 @@ use crate::stats::StatsSnapshot;
 use crate::util::value_history::ValueHistory;
 use crate::util::{InstantExt, already_happened, not_happening};
 
-use super::RtpPacket;
 use super::register_nack::DEFAULT_RTT;
 use super::rtx_cache::RtxCache;
 use super::send_queue::SendQueue;
 use super::send_stats::StreamTxStats;
+use super::{Payload, RtpPacket};
 
 /// The smallest size of padding for which we attempt to use a spurious resend. For padding
 /// requests smaller than this we use blank packets instead.
@@ -197,7 +196,7 @@ pub struct RtpWrite {
     marker: bool,
     ext_vals: ExtensionValues,
     nackable: bool,
-    payload: Arc<[u8]>,
+    payload: Payload,
     csrc_count: usize,
     csrc: [u32; 15],
     vp8_patch: Option<Vp8Patch>,
@@ -292,7 +291,7 @@ impl RtpWrite {
         seq_no: SeqNo,
         time: u32,
         wallclock: Instant,
-        payload: impl Into<Arc<[u8]>>,
+        payload: impl Into<Payload>,
     ) -> Self {
         Self {
             pt,

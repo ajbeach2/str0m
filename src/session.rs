@@ -38,7 +38,7 @@ use crate::rtp_::{RtpHeader, SessionId, TwccPacketId};
 use crate::rtp_::{SrtpContext, Ssrc};
 use crate::rtp_::{TwccRecvRegister, TwccSendRegister};
 use crate::stats::StatsSnapshot;
-use crate::streams::{RtpPacket, StreamTimeoutConfig, Streams};
+use crate::streams::{Payload, PayloadAllocator, RtpPacket, StreamTimeoutConfig, Streams};
 use crate::util::{Soonest, SystemTimeExt, already_happened, not_happening};
 use crate::{Reason, net};
 use crate::{RtcConfig, RtcError};
@@ -112,6 +112,9 @@ pub(crate) struct Session {
 
     // Next packet for RtpPacket event.
     pending_packet: Option<RtpPacket>,
+
+    // In RTP mode, the allocator for received payloads.
+    rtp_payload_allocator: Option<PayloadAllocator>,
 
     // Total RTP payload bytes for media, including retransmissions.
     media_bytes_rx: u64,
@@ -211,6 +214,10 @@ impl Session {
             pacer_control: PacerControl::new(),
             poll_packet_buf: vec![0; 2000],
             pending_packet: None,
+            rtp_payload_allocator: config
+                .rtp_payload_allocator
+                .filter(|_| config.rtp_mode)
+                .map(|a| a.0),
             media_bytes_rx: 0,
             media_bytes_tx: 0,
             ice_lite: config.ice_lite,
@@ -850,9 +857,12 @@ impl Session {
         };
         self.media_bytes_rx += rx_bytes as u64;
 
-        // One-shot conversion to Arc<[u8]>: a single allocation that copies
+        // One-shot conversion to a payload: a single allocation that copies
         // only the trimmed payload bytes out of the SRTP scratch buffer.
-        let payload: Arc<[u8]> = Arc::from(data);
+        let payload = match self.rtp_payload_allocator {
+            Some(allocator) => Payload::new_in(data, allocator),
+            None => Payload::Shared(Arc::from(data)),
+        };
 
         let packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
 
@@ -881,7 +891,7 @@ impl Session {
         for (rec_header, rec_payload, rec_seq, rec_time) in red_recovered {
             // make_rtp_packet (not handle_rtp): recovered packets must not inflate RX stats.
             let rec_packet =
-                stream.make_rtp_packet(now, rec_header, rec_payload, rec_seq, rec_time);
+                stream.make_rtp_packet(now, rec_header, rec_payload.into(), rec_seq, rec_time);
             let media = self.medias.iter_mut().find(|m| m.mid() == mid).unwrap();
             media.depayload(
                 stream.rid(),

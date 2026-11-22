@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config_mod::RtcpReportIntervals;
@@ -17,9 +16,9 @@ use crate::stats::{MediaIngressStats, RemoteEgressStats, StatsSnapshot};
 use crate::util::{InstantExt, SystemTimeExt};
 use crate::util::{already_happened, calculate_rtt};
 
-use super::RtpPacket;
 use super::StreamPaused;
 use super::register::ReceiverRegister;
+use super::{Payload, RtpPacket};
 
 /// How many recent packets to remember for placing RED redundant blocks. Must cover the
 /// recovery depth plus some reordering slack.
@@ -587,7 +586,7 @@ impl StreamRx {
         &mut self,
         now: Instant,
         header: RtpHeader,
-        payload: Arc<[u8]>,
+        payload: Payload,
         seq_no: SeqNo,
         time: MediaTime,
         wire_payload_len: usize,
@@ -609,7 +608,7 @@ impl StreamRx {
         &mut self,
         now: Instant,
         header: RtpHeader,
-        payload: Arc<[u8]>,
+        payload: Payload,
         seq_no: SeqNo,
         time: MediaTime,
     ) -> RtpPacket {

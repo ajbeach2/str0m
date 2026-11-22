@@ -54,6 +54,7 @@ pub struct RtcConfig {
     pub(crate) sctp_max_buffered_amount: usize,
     pub(crate) sctp_max_message_size: u32,
     pub(crate) rtp_mode: bool,
+    pub(crate) rtp_payload_allocator: Option<crate::streams::AllocatorSlot>,
     pub(crate) enable_raw_packets: bool,
     pub(crate) dtls_version: DtlsVersion,
     pub(crate) vp9_packetizer_mode: Vp9PacketizerMode,
@@ -767,6 +768,21 @@ impl RtcConfig {
         self
     }
 
+    /// Set an allocator for received RTP payloads in RTP mode.
+    ///
+    /// Each [`Event::RtpPacket`][crate::Event::RtpPacket] then carries a
+    /// [`Payload::Allocated`][crate::rtp::Payload::Allocated] from this allocator, instead
+    /// of a shared payload from the global allocator. Defaults to `None`.
+    ///
+    /// This setting is ignored outside RTP mode.
+    pub fn set_rtp_payload_allocator(
+        mut self,
+        allocator: Option<crate::rtp::PayloadAllocator>,
+    ) -> Self {
+        self.rtp_payload_allocator = allocator.map(crate::streams::AllocatorSlot);
+        self
+    }
+
     /// Checks if RTP mode is set.
     ///
     /// ```
@@ -935,6 +951,7 @@ impl Default for RtcConfig {
             sctp_max_buffered_amount: crate::sctp::DEFAULT_MAX_BUFFERED_AMOUNT,
             sctp_max_message_size: crate::sctp::LOCAL_MAX_MESSAGE_SIZE,
             rtp_mode: false,
+            rtp_payload_allocator: None,
             enable_raw_packets: false,
             dtls_version: DtlsVersion::Dtls12,
             vp9_packetizer_mode: Vp9PacketizerMode::default(),
