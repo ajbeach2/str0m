@@ -113,6 +113,16 @@ pub(crate) struct Session {
     // Next packet for RtpPacket event.
     pending_packet: Option<RtpPacket>,
 
+    // In RTP mode, the payload bytes of `pending_packet`. The packet itself carries
+    // `empty_payload` until it is polled.
+    pending_payload: Vec<u8>,
+
+    // Shared empty payload, so a deferred packet needs no allocation.
+    empty_payload: Arc<[u8]>,
+
+    // When set, polling `pending_packet` leaves `pending_payload` for the caller.
+    pub(crate) payload_to_caller: bool,
+
     // Total RTP payload bytes for media, including retransmissions.
     media_bytes_rx: u64,
     media_bytes_tx: u64,
@@ -211,6 +221,9 @@ impl Session {
             pacer_control: PacerControl::new(),
             poll_packet_buf: vec![0; 2000],
             pending_packet: None,
+            pending_payload: Vec::new(),
+            empty_payload: Arc::from(&[][..]),
+            payload_to_caller: false,
             media_bytes_rx: 0,
             media_bytes_tx: 0,
             ice_lite: config.ice_lite,
@@ -850,9 +863,16 @@ impl Session {
         };
         self.media_bytes_rx += rx_bytes as u64;
 
-        // One-shot conversion to Arc<[u8]>: a single allocation that copies
-        // only the trimmed payload bytes out of the SRTP scratch buffer.
-        let payload: Arc<[u8]> = Arc::from(data);
+        // In RTP mode a new packet keeps its bytes in `pending_payload` until it is
+        // polled, and the caller can take them without an allocation. Otherwise this is
+        // a one-shot conversion to Arc<[u8]> that copies only the trimmed payload bytes.
+        let payload: Arc<[u8]> = if self.rtp_mode && receipt.is_new_packet {
+            self.pending_payload.clear();
+            self.pending_payload.extend_from_slice(data);
+            self.empty_payload.clone()
+        } else {
+            Arc::from(data)
+        };
 
         let packet = stream.handle_rtp(now, header, payload, seq_no, receipt.time, rx_bytes);
 
@@ -891,6 +911,12 @@ impl Session {
                 &self.codec_config,
             );
         }
+    }
+
+    /// Hand the payload of the last polled [`RtpPacket`] to the caller, and keep the
+    /// caller's buffer for the next one.
+    pub(crate) fn swap_rx_payload(&mut self, payload: &mut Vec<u8>) {
+        std::mem::swap(payload, &mut self.pending_payload);
     }
 
     /// Identifies candidates for padding receipt before the main SSRC is discovered.
@@ -1062,7 +1088,10 @@ impl Session {
         }
 
         if self.rtp_mode {
-            if let Some(packet) = self.pending_packet.take() {
+            if let Some(mut packet) = self.pending_packet.take() {
+                if !self.payload_to_caller {
+                    packet.payload = Arc::from(&self.pending_payload[..]);
+                }
                 return Some(Event::RtpPacket(packet));
             }
         }

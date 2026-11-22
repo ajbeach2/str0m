@@ -1619,6 +1619,25 @@ impl Rtc {
         Ok(o)
     }
 
+    /// Like [`Rtc::poll_output`], but an [`Event::RtpPacket`] puts its payload in a buffer
+    /// that the caller owns.
+    ///
+    /// When the output is an [`Event::RtpPacket`], `payload` holds the RTP payload and the
+    /// packet's own `payload` field is empty. The buffer that `payload` held before is kept
+    /// for a later packet, so a caller that reuses its buffer causes no allocation. Any
+    /// other output leaves `payload` as it was.
+    ///
+    /// This only differs from [`Rtc::poll_output`] in RTP mode.
+    pub fn poll_output_into(&mut self, payload: &mut Vec<u8>) -> Result<Output, RtcError> {
+        self.session.payload_to_caller = true;
+        let o = self.poll_output();
+        self.session.payload_to_caller = false;
+        if let Ok(Output::Event(Event::RtpPacket(_))) = &o {
+            self.session.swap_rx_payload(payload);
+        }
+        o
+    }
+
     /// Conservatively re-poll the whole tree.
     fn wake_all(&mut self) {
         drop(self.readiness.wake());
